@@ -1,0 +1,123 @@
+/*
+KeyGraph word parser for MeCab
+Zhai Hongjie (c)2012
+All rights reserved.
+*/
+
+package mecab
+
+import (
+	"bufio"
+	"code.google.com/p/mahonia"
+	"errors"
+	"io"
+	"log"
+	"os"
+	"strings"
+)
+
+const wordoffset = 1
+
+type Parser struct {
+	file           *os.File
+	buffer         *bufio.Reader
+	decoder        mahonia.Decoder
+	count          int
+	token          string
+	extraproperies string
+}
+
+func (pars *Parser) Next() (string, error) {
+	if pars.file == nil {
+		return "", errors.New("File not open")
+	}
+	pars.count++
+	line, err := pars.buffer.ReadString('\n')
+	pars.token = ""
+	pars.extraproperies = ""
+	if err != nil {
+		if err != io.EOF {
+			log.Println(err.Error())
+			return pars.token, err
+		}
+		return pars.token, errors.New("EOS")
+	}
+	if len(line) < 1 {
+		return pars.token, errors.New("not enough tokens")
+	}
+	if pars.decoder != nil {
+		line = pars.decoder.ConvertString(line)
+	}
+	strarray := strings.Split(line, "	")
+	pars.token = strings.ToUpper(strings.TrimSpace(strarray[0]))
+	if len(strarray) < wordoffset {
+		if len(strarray) == 1 || pars.IsEOS(pars.token) {
+			return pars.token, nil
+		}
+		log.Printf("missing word in %d,%s \n", pars.count, line)
+		return pars.Next()
+	}
+	if len(strarray) > wordoffset {
+		propery := strings.Split(strarray[1], ",")
+		pars.extraproperies = strings.ToUpper(strings.TrimSpace(propery[0]))
+	}
+	if pars.token = strings.ToUpper(strings.TrimSpace(strarray[wordoffset-1])); pars.token == "" {
+		pars.token = " "
+	}
+	return pars.token, nil
+}
+
+func (pars *Parser) Propery() string {
+	return pars.extraproperies
+}
+
+func (pars *Parser) Open(filename string, charset string) {
+	pars.count = 0
+	file, err := os.Open(filename)
+	pars.file = file
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+	pars.buffer = bufio.NewReader(pars.file)
+	if charset != "utf-8" || charset != "" {
+		pars.decoder = mahonia.NewDecoder(charset)
+	} else {
+		pars.decoder = nil
+	}
+	if charset == "" {
+		log.Printf("open file %s with charset %s \n", filename, "default(UTF-8)")
+	} else {
+		log.Printf("open file %s with charset %s \n", filename, charset)
+	}
+
+}
+
+func (pars *Parser) Close() {
+	if pars.file != nil {
+		pars.file.Close()
+		log.Printf("file closed: %s \n", pars.file.Name())
+	}
+	pars.file = nil
+}
+
+func (pars *Parser) Reset() {
+	if pars.file == nil {
+		return
+	}
+	pos, err := pars.file.Seek(0, os.SEEK_SET)
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+	if pos != 0 {
+		log.Printf("parser reset to %d \n", pos)
+	}
+	pars.buffer = bufio.NewReader(pars.file)
+}
+
+func (*Parser) IsEOS(token string) bool {
+	return strings.ToUpper(token) == "EOS"
+}
+
+func NewParser() *Parser {
+	return new(Parser)
+}
